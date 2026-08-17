@@ -90,6 +90,10 @@ stages:
           export ARM_CLIENT_SECRET="$servicePrincipalKey"
           export ARM_TENANT_ID="$tenantId"
           export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+          # Idempotent - confirmed via a real run that the tfstate container did not already
+          # exist in $(storageAccountName) as assumed; create-if-missing here instead of treating
+          # it as a one-time manual prerequisite.
+          az storage container create --name "$(tfstateContainerName)" --account-name "$(storageAccountName)" --auth-mode login
           terraform init -backend-config=backend.hcl -reconfigure -input=false
           terraform plan -input=false -out=tfplan
 

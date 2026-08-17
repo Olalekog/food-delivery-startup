@@ -22,8 +22,17 @@ Terraform reads it as a data source, not creating it). Azure DevOps project:
 
 ### 1. Terraform remote state
 
-State lives in the existing shared storage account, in its own key — no new container needed,
-`tfstate` already exists there from other projects:
+State lives in the existing shared storage account, in its own key. The `tfstate` container turned
+out **not** to already exist in `olalekog` (confirmed on a real `foodfast-infra-deploy` run —
+`terraform init` failed with `ContainerNotFound`, contradicting the original assumption that other
+projects' use of that container meant it was already there), so `pipelines/infra-deploy.yml`'s
+Plan stage creates it idempotently (`az storage container create`) before every `terraform init` —
+no manual step needed. If running the bootstrap apply locally (step 2) before the pipeline ever
+runs, create it yourself first:
+
+```bash
+az storage container create -n tfstate --account-name olalekog
+```
 
 ```bash
 cd infra/terraform
@@ -73,18 +82,19 @@ inside the condition's Yes branch with the same Subject/Body, switch to **Code v
 generated action JSON, and paste it into `logic_app.tf` in place of the placeholder — then
 `terraform apply` again so Terraform owns it going forward.
 
-### 5. Azure DevOps pipelines — done
+### 5. Azure DevOps pipelines — partial
 
-5 pipeline definitions exist in **training-proj**, created via `az pipelines create` against the
-existing `github.com_Olalekog` GitHub service connection (no new connection needed):
+Pipeline definitions live in **training-proj**, created via `az pipelines create` against the
+existing `github.com_Olalekog` GitHub service connection (no new connection needed). The original
+5 (ids 33/34/35/36/37) were deleted outside this session while troubleshooting; current state:
 
-| Pipeline name | ID | YAML file | Trigger |
-|---|---|---|---|
-| `foodfast-infra-deploy` | 33 | `pipelines/infra-deploy.yml` | push to `main`, path `infra/terraform` |
-| `Olalekog.food-delivery-startup` | 34 | `pipelines/api-build.yml` | push to `main`, path `apps/api` |
-| `foodfast-api-release` | 36 | `pipelines/api-release.yml` | on pipeline 34's completion |
-| `Olalekog.food-delivery-startup-function` | 35 | `pipelines/function-build.yml` | push to `main`, path `apps/function` |
-| `foodfast-function-release` | 37 | `pipelines/function-release.yml` | on pipeline 35's completion |
+| Pipeline name | ID | YAML file | Trigger | Status |
+|---|---|---|---|---|
+| `foodfast-infra-deploy` | 39 | `pipelines/infra-deploy.yml` | push to `main`, path `infra/terraform` | recreated, being tested |
+| `Olalekog.food-delivery-startup` | 38 | `pipelines/api-build.yml` | push to `main`, path `apps/api` | exists |
+| `foodfast-api-release` | — | `pipelines/api-release.yml` | on the API build pipeline's completion | not yet recreated |
+| `Olalekog.food-delivery-startup-function` | — | `pipelines/function-build.yml` | push to `main`, path `apps/function` | not yet recreated |
+| `foodfast-function-release` | — | `pipelines/function-release.yml` | on the function build pipeline's completion | not yet recreated |
 
 The two build pipelines are named to exactly match the `source:` values already in
 `api-release.yml`/`function-release.yml` — no YAML edits needed. If a pipeline is ever renamed,
