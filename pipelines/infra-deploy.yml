@@ -127,6 +127,11 @@ stages:
       runOnce:
         deploy:
           steps:
+          # deployment jobs don't auto-checkout the repo like regular jobs do - confirmed on a
+          # real run that omitting this leaves infra/terraform/ missing entirely, failing the
+          # "Generate backend config" step with "No such file or directory".
+          - checkout: self
+
           - download: current
             artifact: foodfast-tfplan
             displayName: 'Download plan file'
