@@ -26,6 +26,14 @@
 # type (this affects AzureCLI@2 here exactly the same as AzureWebApp@1/AzureFunctionApp@2 in the
 # app release pipelines - it is not task-specific, and the Pipeline Preview API does not catch
 # this because it doesn't run that specific check).
+#
+# addSpnToEnvironment: true + the ARM_* exports below are required because AzureCLI@2 logs in via
+# `az login --service-principal`, and the azurerm provider's default Azure CLI auth mode
+# explicitly refuses service-principal CLI sessions ("only supported as a User") - confirmed on a
+# real run. addSpnToEnvironment exposes the connection's credentials as servicePrincipalId/
+# servicePrincipalKey/tenantId (not ARM_*-named), so they're re-exported under the names the
+# azurerm provider actually looks for, which makes it use Service Principal auth instead of
+# attempting (and failing) CLI auth.
 
 trigger:
   branches:
@@ -75,8 +83,13 @@ stages:
         scriptType: bash
         workingDirectory: infra/terraform
         scriptLocation: inlineScript
+        addSpnToEnvironment: true
         inlineScript: |
           set -euo pipefail
+          export ARM_CLIENT_ID="$servicePrincipalId"
+          export ARM_CLIENT_SECRET="$servicePrincipalKey"
+          export ARM_TENANT_ID="$tenantId"
+          export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
           terraform init -backend-config=backend.hcl -reconfigure -input=false
           terraform plan -input=false -out=tfplan
 
@@ -139,7 +152,12 @@ stages:
               scriptType: bash
               workingDirectory: infra/terraform
               scriptLocation: inlineScript
+              addSpnToEnvironment: true
               inlineScript: |
                 set -euo pipefail
+                export ARM_CLIENT_ID="$servicePrincipalId"
+                export ARM_CLIENT_SECRET="$servicePrincipalKey"
+                export ARM_TENANT_ID="$tenantId"
+                export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
                 terraform init -backend-config=backend.hcl -reconfigure -input=false
                 terraform apply -input=false tfplan
