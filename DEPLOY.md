@@ -20,6 +20,20 @@ Terraform reads it as a data source, not creating it). Azure DevOps project:
 
 ## One-time setup
 
+### 0. Grant the AzureTraining service principal RBAC-assignment rights
+
+Confirmed on a real apply (build 266): the service principal behind the `AzureTraining` ARM
+service connection can create almost everything in this stack, but gets a 403
+(`AuthorizationFailed`) on `Microsoft.Authorization/roleAssignments/write` — it can't create the
+two role assignments this stack needs (`Key Vault Secrets Officer` for itself on the new Key
+Vault, `Storage Blob Data Contributor` for the Web App's managed identity on the new storage
+account). Someone with sufficient rights on `Training-Batch-6.23` (e.g. Syed Ahsan, who created
+the `AzureTraining` connection) needs to grant the SPN (object id `5e98d324-e379-4502-a6fb-73fc5439ed2c`)
+**User Access Administrator** (or equivalent) scoped to that resource group before `terraform
+apply` can complete cleanly. Until then, expect those two `azurerm_role_assignment` resources -
+and anything that depends on them (Key Vault secrets, the Web App's blob write access) - to fail
+on every apply, even though the rest of the stack succeeds.
+
 ### 1. Terraform remote state
 
 State lives in the existing shared storage account, in its own key. The `tfstate` container turned

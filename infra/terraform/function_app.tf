@@ -1,9 +1,15 @@
+# EP1 (Elastic Premium), not Y1 (Consumption) - confirmed on a real apply that
+# Training-Batch-6.23 rejects Y1 ("Requested features 'Dynamic SKU, Linux Worker' not
+# available in resource group"). Flex Consumption (azurerm_function_app_flex_consumption)
+# would avoid EP1's fixed cost, but that resource type only exists in azurerm provider ~>4.x -
+# confirmed via a local schema check that it's absent from our pinned ~>3.116 - and bumping the
+# whole provider major version was judged too risky/out of scope here.
 resource "azurerm_service_plan" "functions" {
   name                = "${var.function_app_name}-plan"
   resource_group_name = data.azurerm_resource_group.main.name
   location            = data.azurerm_resource_group.main.location
   os_type             = "Linux"
-  sku_name            = "Y1"
+  sku_name            = "EP1"
   tags                = var.tags
 }
 
