@@ -1,0 +1,54 @@
+# CD: deploys the artifact published by foodfast-function-build to the Function App provisioned
+# by infra-deploy.yml. Single environment - no staging/production split.
+#
+# Create this as an Azure DevOps pipeline named "foodfast-function-release", fired automatically
+# by the build pipeline's completion (update `source:` below if it's named differently at
+# creation time). Uses AzureFunctionApp@2 (not AzureWebApp@1) with appType functionAppLinux.
+#
+# azureServiceConnection and functionAppName both come from the "foodfast-function" Library
+# variable group instead of being hardcoded - see DEPLOY.md and the equivalent note in
+# api-release.yml for why sourcing the service connection name from a variable is safe here
+# (the "AzureTraining" connection has allPipelines.authorized=true in training-proj).
+#
+# Runs on the self-hosted agent "OGOGUNDARE", registered in the "self-hosted" agent pool.
+
+trigger: none
+
+resources:
+  pipelines:
+  - pipeline: functionBuild
+    source: Olalekog.food-delivery-startup-function
+    trigger: true
+
+pool:
+  name: self-hosted
+  demands:
+  - Agent.Name -equals OGOGUNDARE
+
+stages:
+- stage: Deploy
+  displayName: 'Deploy to Function App'
+  jobs:
+  - deployment: Deploy
+    displayName: 'Deploy to Function App'
+    # environment: must stay a literal - see the equivalent note in api-release.yml, confirmed
+    # via the Pipeline Preview API.
+    environment: foodfast-function
+    variables:
+    - group: foodfast-function
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: none
+
+          - download: functionBuild
+            artifact: foodfast-function-release
+
+          - task: AzureFunctionApp@2
+            displayName: 'Deploy to Function App'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              appType: functionAppLinux
+              appName: '$(functionAppName)'
+              package: '$(Pipeline.Workspace)/functionBuild/foodfast-function-release/latest.zip'

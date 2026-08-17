@@ -1,0 +1,79 @@
+# CD: takes the artifact published by foodfast-api-build and deploys it to the Web App
+# provisioned by infra-deploy.yml. Single environment - no staging/production split.
+#
+# Create this as an Azure DevOps pipeline named "foodfast-api-release". It has no path/branch
+# trigger of its own - it fires automatically whenever the build pipeline completes (matched by
+# the exact name given at pipeline-creation time, referenced below as
+# "Olalekog.food-delivery-startup" - update `source:` if the build pipeline is named
+# differently).
+#
+# azureServiceConnection, keyVaultName, and webAppName all come from the "foodfast-api" Library
+# variable group instead of being hardcoded - see DEPLOY.md. (Sourcing the service connection
+# name from a variable only risks trouble when the connection isn't open to all pipelines - ADO's
+# compile-time resource-authorization scan can't resolve a variable, so it can't auto-trigger the
+# one-time "this pipeline needs permission" prompt on a *restricted* connection. Verified via
+# `az devops service-endpoint show`/the pipelinePermissions API that "AzureTraining" already has
+# allPipelines.authorized=true in training-proj, so that doesn't apply here.)
+#
+# Pulls the Cosmos primary key straight from that Key Vault via
+# AzureKeyVault@2 - no variable group needed as an intermediary for the key itself, same
+# direct-from-Key-Vault pattern as cosmosdb-data-fetch/azure-pipelines.yml. This is what "Cosmos
+# key lives in Key Vault and is injected by the pipeline" means in practice: the key never lives
+# in a repo file, a Library variable group, or the Terraform-managed Web App config - only in the
+# vault and, transiently, in this deploy step's app settings push.
+#
+# Runs on the self-hosted agent "OGOGUNDARE", registered in the "self-hosted" agent pool.
+# The target Web App is Linux App Service; SCM_DO_BUILD_DURING_DEPLOYMENT=true makes Kudu's Oryx
+# build run `npm install` server-side after deploy, since the artifact ships source only.
+
+trigger: none
+
+resources:
+  pipelines:
+  - pipeline: apiBuild
+    source: Olalekog.food-delivery-startup
+    trigger: true
+
+pool:
+  name: self-hosted
+  demands:
+  - Agent.Name -equals OGOGUNDARE
+
+stages:
+- stage: Deploy
+  displayName: 'Deploy to Azure App Service'
+  jobs:
+  - deployment: Deploy
+    displayName: 'Deploy to Web App'
+    # environment: must stay a literal - confirmed via the Pipeline Preview API that neither
+    # $(var) macro syntax nor ${{ parameters.x }} template expressions are accepted here, unlike
+    # task inputs (e.g. azureServiceConnection below). It's resolved structurally (bound to the
+    # Environment/Checks system) before variables are available.
+    environment: foodfast-api
+    variables:
+    - group: foodfast-api
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: none
+
+          - task: AzureKeyVault@2
+            displayName: 'Fetch Cosmos key from Key Vault'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              KeyVaultName: '$(keyVaultName)'
+              SecretsFilter: 'cosmosPrimaryKey,cosmosEndpoint'
+              RunAsPreJob: false
+
+          - download: apiBuild
+            artifact: foodfast-api-release
+
+          - task: AzureWebApp@1
+            displayName: 'Deploy to Web App'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              appType: webAppLinux
+              appName: '$(webAppName)'
+              package: '$(Pipeline.Workspace)/apiBuild/foodfast-api-release/latest.zip'
+              appSettings: '-COSMOS_KEY $(cosmosPrimaryKey) -COSMOS_ENDPOINT $(cosmosEndpoint) -SCM_DO_BUILD_DURING_DEPLOYMENT true'

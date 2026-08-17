@@ -1,0 +1,8 @@
+# Copy to backend.hcl (gitignored) then:
+#   terraform init -backend-config=backend.hcl
+# Shared tfstate storage account, same as this user's other projects - only the key differs.
+
+resource_group_name  = "Training-Batch-6.23"
+storage_account_name = "olalekog"
+container_name        = "tfstate"
+key                    = "foodfast.tfstate"

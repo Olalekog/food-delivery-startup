@@ -1,0 +1,145 @@
+# CI/CD for the Terraform infrastructure itself - separate from the app build/release pipelines,
+# since a Terraform apply can create/destroy real, billable resources and deserves its own review
+# point rather than being folded into an app deploy.
+#
+# Single environment (no staging/production split - see README.md). Plan runs automatically on
+# every push to infra/terraform on main; Apply is gated behind a ManualValidation backstop and
+# applies the exact plan file Plan published, never a fresh plan, so what gets approved is what
+# gets applied.
+#
+# Create this as an Azure DevOps pipeline named "foodfast-infra-deploy" in project training-proj,
+# pointed at this repo's main branch. Runs on the hosted ubuntu-latest pool (not the self-hosted
+# agent used by the app pipelines below).
+#
+# Both backend.hcl and terraform.tfvars are generated at runtime from the "foodfast" Library
+# variable group (Pipelines > Library) - see DEPLOY.md for how to create it. Required variables:
+#   resourceGroupName       - "Training-Batch-6.23"
+#   storageAccountName      - "olalekog"
+#   tfstateContainerName    - "tfstate"
+#   tfstateKey              - "foodfast.tfstate"
+#   azureServiceConnection  - "AzureTraining (606e824b-aaf7-4b4e-9057-b459f6a4436d)"
+#   opsNotificationEmail    - secret; the "New order received" recipient
+#
+# api-release.yml/function-release.yml source azureServiceConnection from a variable group the
+# same way - sourcing it from a variable is only risky when the connection isn't open to all
+# pipelines (ADO's compile-time resource-authorization scan can't resolve a variable, so it can't
+# auto-trigger the one-time "this pipeline needs permission" prompt on a *restricted* connection).
+# Verified via the pipelinePermissions API that "AzureTraining" has allPipelines.authorized=true
+# in training-proj, so that doesn't apply to any pipeline in this repo.
+
+trigger:
+  branches:
+    include:
+    - main
+  paths:
+    include:
+    - infra/terraform
+
+variables:
+  terraformVersion: '1.10.4'
+
+stages:
+- stage: Plan
+  displayName: 'Plan'
+  jobs:
+  - job: Plan
+    pool:
+      vmImage: ubuntu-latest
+    variables:
+    - group: foodfast
+    steps:
+    - script: |
+        set -euo pipefail
+        curl -fsSL "https://releases.hashicorp.com/terraform/$(terraformVersion)/terraform_$(terraformVersion)_linux_amd64.zip" -o /tmp/terraform.zip
+        sudo unzip -o /tmp/terraform.zip -d /usr/local/bin
+        terraform -version
+      displayName: 'Install Terraform'
+
+    - script: |
+        set -euo pipefail
+        cat > infra/terraform/backend.hcl <<EOF
+        resource_group_name  = "$(resourceGroupName)"
+        storage_account_name = "$(storageAccountName)"
+        container_name        = "$(tfstateContainerName)"
+        key                    = "$(tfstateKey)"
+        EOF
+        cat > infra/terraform/terraform.tfvars <<EOF
+        ops_notification_email = "$(opsNotificationEmail)"
+        EOF
+      displayName: 'Generate backend config and tfvars from Library variables'
+
+    - task: AzureCLI@2
+      displayName: 'terraform init && terraform plan'
+      inputs:
+        azureSubscription: '$(azureServiceConnection)'
+        scriptType: bash
+        workingDirectory: infra/terraform
+        scriptLocation: inlineScript
+        inlineScript: |
+          set -euo pipefail
+          terraform init -backend-config=backend.hcl -reconfigure -input=false
+          terraform plan -input=false -out=tfplan
+
+    - publish: infra/terraform/tfplan
+      artifact: foodfast-tfplan
+      displayName: 'Publish plan file'
+
+- stage: Apply
+  displayName: 'Apply'
+  dependsOn: Plan
+  jobs:
+  - job: WaitForApproval
+    displayName: 'Manual approval to apply infrastructure'
+    pool: server
+    timeoutInMinutes: 1440
+    steps:
+    - task: ManualValidation@0
+      timeoutInMinutes: 1440
+      inputs:
+        instructions: 'Review the Plan stage logs, then approve to apply Terraform to Training-Batch-6.23.'
+
+  - deployment: Apply
+    displayName: 'Apply'
+    dependsOn: WaitForApproval
+    environment: foodfast
+    pool:
+      vmImage: ubuntu-latest
+    variables:
+    - group: foodfast
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: foodfast-tfplan
+            displayName: 'Download plan file'
+
+          - script: |
+              set -euo pipefail
+              curl -fsSL "https://releases.hashicorp.com/terraform/$(terraformVersion)/terraform_$(terraformVersion)_linux_amd64.zip" -o /tmp/terraform.zip
+              sudo unzip -o /tmp/terraform.zip -d /usr/local/bin
+              terraform -version
+            displayName: 'Install Terraform'
+
+          - script: |
+              set -euo pipefail
+              cat > infra/terraform/backend.hcl <<EOF
+              resource_group_name  = "$(resourceGroupName)"
+              storage_account_name = "$(storageAccountName)"
+              container_name        = "$(tfstateContainerName)"
+              key                    = "$(tfstateKey)"
+              EOF
+              cp "$(Pipeline.Workspace)/foodfast-tfplan/tfplan" infra/terraform/tfplan
+            displayName: 'Generate backend config and stage plan file'
+
+          - task: AzureCLI@2
+            displayName: 'terraform init && terraform apply'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: bash
+              workingDirectory: infra/terraform
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                terraform init -backend-config=backend.hcl -reconfigure -input=false
+                terraform apply -input=false tfplan

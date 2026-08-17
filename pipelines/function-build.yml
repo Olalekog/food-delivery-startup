@@ -1,0 +1,33 @@
+# CI for the order-notification Function App - mirrors api-build.yml's Build -> Test ->
+# PublishArtifact shape (no test suite here yet, so Test is skipped), publishing source only
+# (no node_modules) for function-release.yml to deploy. Node dependencies install server-side via
+# Oryx, since the Function App has SCM_DO_BUILD_DURING_DEPLOYMENT=true (see
+# infra/terraform/function_app.tf).
+#
+# Runs on the self-hosted agent "OGOGUNDARE", registered in the "self-hosted" agent pool.
+
+trigger:
+  branches:
+    include:
+    - main
+  paths:
+    include:
+    - apps/function
+
+stages:
+- stage: PublishArtifact
+  displayName: 'Publish artifact'
+  jobs:
+  - job: Publish
+    pool:
+      name: self-hosted
+      demands:
+        - Agent.Name -equals OGOGUNDARE
+    steps:
+    - powershell: |
+        Compress-Archive -Path host.json, package.json, src -DestinationPath "$(Build.ArtifactStagingDirectory)/latest.zip" -Force
+      displayName: 'Zip function app source'
+      workingDirectory: apps/function
+
+    - publish: '$(Build.ArtifactStagingDirectory)/latest.zip'
+      artifact: foodfast-function-release

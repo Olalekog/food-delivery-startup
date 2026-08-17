@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars (gitignored) and fill in ops_notification_email.
+# All naming defaults below already match variables.tf - only override if you need different
+# globally-unique names.
+
+ops_notification_email = "you@example.com"
+
+# existing_resource_group_name = "Training-Batch-6.23"
+# storage_account_name         = "stfoodfastogogu"
+# key_vault_name                = "kv-foodfast-ogogundare"
+# cosmos_account_name           = "cosmos-foodfast-ogogundare"
+# web_app_name                  = "foodfast-api-ogogundare"
+# function_app_name             = "foodfast-orders-fn-ogogundare"
+# logic_app_name                = "foodfast-order-email"

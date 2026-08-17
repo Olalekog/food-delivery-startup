@@ -1,0 +1,83 @@
+# CI: installs the API's dependencies, runs its test suite, and publishes a release-ready
+# artifact. This pipeline is named "Olalekog.food-delivery-startup" in Azure DevOps (or whatever
+# name is given at pipeline-creation time) - api-release.yml references it by that name.
+#
+# Runs strictly sequentially: Build -> Test -> PublishArtifact. PublishArtifact only runs after
+# Test passes, so a failing test blocks the artifact from ever being published.
+#
+# Runs on the self-hosted agent named "OGOGUNDARE" (pool name must match wherever that agent is
+# actually registered - see nodejs-azure-app/build-pipeline.yml for the same caveat). That agent
+# is Windows-based, so steps use the `powershell:` script type and PublishArtifact uses
+# Compress-Archive instead of zip.
+#
+# The target Web App is Linux App Service. PublishArtifact zips source only (no node_modules) -
+# api-release.yml enables SCM_DO_BUILD_DURING_DEPLOYMENT so Kudu's Oryx build installs
+# dependencies server-side after deploy.
+
+trigger:
+  branches:
+    include:
+    - main
+  paths:
+    include:
+    - apps/api
+
+stages:
+- stage: Build
+  displayName: 'Build'
+  jobs:
+  - job: Build
+    pool:
+      name: self-hosted
+      demands:
+        - Agent.Name -equals OGOGUNDARE
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '20.x'
+
+    - powershell: |
+        npm install
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      displayName: 'npm install'
+      workingDirectory: apps/api
+
+- stage: Test
+  displayName: 'Test'
+  dependsOn: Build
+  jobs:
+  - job: Test
+    pool:
+      name: self-hosted
+      demands:
+        - Agent.Name -equals OGOGUNDARE
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '20.x'
+
+    - powershell: |
+        npm install
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        npm test
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      displayName: 'npm install && npm test'
+      workingDirectory: apps/api
+
+- stage: PublishArtifact
+  displayName: 'Publish artifact'
+  dependsOn: Test
+  jobs:
+  - job: Publish
+    pool:
+      name: self-hosted
+      demands:
+        - Agent.Name -equals OGOGUNDARE
+    steps:
+    - powershell: |
+        Compress-Archive -Path server.js, package.json, lib -DestinationPath "$(Build.ArtifactStagingDirectory)/latest.zip" -Force
+      displayName: 'Zip app + package.json'
+      workingDirectory: apps/api
+
+    - publish: '$(Build.ArtifactStagingDirectory)/latest.zip'
+      artifact: foodfast-api-release

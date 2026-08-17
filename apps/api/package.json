@@ -1,0 +1,19 @@
+{
+  "name": "foodfast-api",
+  "version": "1.0.0",
+  "description": "FoodFast order API - Linux Web App, deployed only via CI/CD",
+  "main": "server.js",
+  "engines": {
+    "node": "20.x"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@azure/cosmos": "^4.1.1",
+    "@azure/identity": "^4.4.1",
+    "@azure/storage-blob": "^12.24.0",
+    "express": "^4.19.2"
+  }
+}
