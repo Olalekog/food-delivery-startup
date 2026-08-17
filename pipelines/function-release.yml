@@ -5,10 +5,10 @@
 # by the build pipeline's completion (update `source:` below if it's named differently at
 # creation time). Uses AzureFunctionApp@2 (not AzureWebApp@1) with appType functionAppLinux.
 #
-# azureServiceConnection and functionAppName both come from the "foodfast-function" Library
-# variable group instead of being hardcoded - see DEPLOY.md and the equivalent note in
-# api-release.yml for why sourcing the service connection name from a variable is safe here
-# (the "AzureTraining" connection has allPipelines.authorized=true in training-proj).
+# functionAppName comes from the "foodfast-function" Library variable group instead of being
+# hardcoded - see DEPLOY.md. azureSubscription stays a hardcoded literal - see the equivalent note
+# in api-release.yml (confirmed on a real run; Azure DevOps' service-connection authorization
+# check doesn't expand variable-group values before matching).
 #
 # Runs on the self-hosted agent "OGOGUNDARE", registered in the "self-hosted" agent pool.
 
@@ -48,7 +48,7 @@ stages:
           - task: AzureFunctionApp@2
             displayName: 'Deploy to Function App'
             inputs:
-              azureSubscription: '$(azureServiceConnection)'
+              azureSubscription: 'AzureTraining (606e824b-aaf7-4b4e-9057-b459f6a4436d)'
               appType: functionAppLinux
               appName: '$(functionAppName)'
               package: '$(Pipeline.Workspace)/functionBuild/foodfast-function-release/latest.zip'

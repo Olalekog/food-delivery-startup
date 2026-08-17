@@ -7,13 +7,13 @@
 # "Olalekog.food-delivery-startup" - update `source:` if the build pipeline is named
 # differently).
 #
-# azureServiceConnection, keyVaultName, and webAppName all come from the "foodfast-api" Library
-# variable group instead of being hardcoded - see DEPLOY.md. (Sourcing the service connection
-# name from a variable only risks trouble when the connection isn't open to all pipelines - ADO's
-# compile-time resource-authorization scan can't resolve a variable, so it can't auto-trigger the
-# one-time "this pipeline needs permission" prompt on a *restricted* connection. Verified via
-# `az devops service-endpoint show`/the pipelinePermissions API that "AzureTraining" already has
-# allPipelines.authorized=true in training-proj, so that doesn't apply here.)
+# keyVaultName and webAppName come from the "foodfast-api" Library variable group instead of
+# being hardcoded - see DEPLOY.md. azureSubscription below stays a hardcoded literal, though -
+# confirmed on a real pipeline run that Azure DevOps' service-connection authorization check
+# matches the task input's literal string and does not expand $(var)/variable-group values first,
+# so a variable-sourced value fails with "service connection ... could not be found" (this is not
+# specific to AzureWebApp@1/AzureKeyVault@2 - the same thing happens with AzureCLI@2 in
+# infra-deploy.yml; the Pipeline Preview API doesn't catch it because it doesn't run this check).
 #
 # Pulls the Cosmos primary key straight from that Key Vault via
 # AzureKeyVault@2 - no variable group needed as an intermediary for the key itself, same
@@ -46,9 +46,10 @@ stages:
   - deployment: Deploy
     displayName: 'Deploy to Web App'
     # environment: must stay a literal - confirmed via the Pipeline Preview API that neither
-    # $(var) macro syntax nor ${{ parameters.x }} template expressions are accepted here, unlike
-    # task inputs (e.g. azureServiceConnection below). It's resolved structurally (bound to the
-    # Environment/Checks system) before variables are available.
+    # $(var) macro syntax nor ${{ parameters.x }} template expressions are accepted here. It's
+    # resolved structurally (bound to the Environment/Checks system) before variables are
+    # available - same underlying category of issue as azureSubscription below, just caught by a
+    # different validation pass (Preview catches this one; only a real run catches that one).
     environment: foodfast-api
     variables:
     - group: foodfast-api
@@ -61,7 +62,7 @@ stages:
           - task: AzureKeyVault@2
             displayName: 'Fetch Cosmos key from Key Vault'
             inputs:
-              azureSubscription: '$(azureServiceConnection)'
+              azureSubscription: 'AzureTraining (606e824b-aaf7-4b4e-9057-b459f6a4436d)'
               KeyVaultName: '$(keyVaultName)'
               SecretsFilter: 'cosmosPrimaryKey,cosmosEndpoint'
               RunAsPreJob: false
@@ -72,7 +73,7 @@ stages:
           - task: AzureWebApp@1
             displayName: 'Deploy to Web App'
             inputs:
-              azureSubscription: '$(azureServiceConnection)'
+              azureSubscription: 'AzureTraining (606e824b-aaf7-4b4e-9057-b459f6a4436d)'
               appType: webAppLinux
               appName: '$(webAppName)'
               package: '$(Pipeline.Workspace)/apiBuild/foodfast-api-release/latest.zip'

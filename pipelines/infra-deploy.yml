@@ -17,15 +17,15 @@
 #   storageAccountName      - "olalekog"
 #   tfstateContainerName    - "tfstate"
 #   tfstateKey              - "foodfast.tfstate"
-#   azureServiceConnection  - "AzureTraining (606e824b-aaf7-4b4e-9057-b459f6a4436d)"
 #   opsNotificationEmail    - secret; the "New order received" recipient
 #
-# api-release.yml/function-release.yml source azureServiceConnection from a variable group the
-# same way - sourcing it from a variable is only risky when the connection isn't open to all
-# pipelines (ADO's compile-time resource-authorization scan can't resolve a variable, so it can't
-# auto-trigger the one-time "this pipeline needs permission" prompt on a *restricted* connection).
-# Verified via the pipelinePermissions API that "AzureTraining" has allPipelines.authorized=true
-# in training-proj, so that doesn't apply to any pipeline in this repo.
+# azureSubscription below stays a hardcoded literal, not sourced from a variable - confirmed on a
+# real pipeline run that Azure DevOps' service-connection authorization check matches against the
+# literal string in the task input and does NOT expand $(var)/variable-group values first, so a
+# variable-sourced value fails with "service connection ... could not be found" regardless of task
+# type (this affects AzureCLI@2 here exactly the same as AzureWebApp@1/AzureFunctionApp@2 in the
+# app release pipelines - it is not task-specific, and the Pipeline Preview API does not catch
+# this because it doesn't run that specific check).
 
 trigger:
   branches:
@@ -71,7 +71,7 @@ stages:
     - task: AzureCLI@2
       displayName: 'terraform init && terraform plan'
       inputs:
-        azureSubscription: '$(azureServiceConnection)'
+        azureSubscription: 'AzureTraining (606e824b-aaf7-4b4e-9057-b459f6a4436d)'
         scriptType: bash
         workingDirectory: infra/terraform
         scriptLocation: inlineScript
@@ -135,7 +135,7 @@ stages:
           - task: AzureCLI@2
             displayName: 'terraform init && terraform apply'
             inputs:
-              azureSubscription: '$(azureServiceConnection)'
+              azureSubscription: 'AzureTraining (606e824b-aaf7-4b4e-9057-b459f6a4436d)'
               scriptType: bash
               workingDirectory: infra/terraform
               scriptLocation: inlineScript

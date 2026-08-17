@@ -110,7 +110,6 @@ Variable group **`foodfast`** (id 18) exists, authorized for all pipelines, hold
 | `storageAccountName` | `olalekog` | no |
 | `tfstateContainerName` | `tfstate` | no |
 | `tfstateKey` | `foodfast.tfstate` | no |
-| `azureServiceConnection` | `AzureTraining (606e824b-aaf7-4b4e-9057-b459f6a4436d)` | no |
 | `opsNotificationEmail` | the "New order received" recipient | ✅ |
 
 To change a plain value:
@@ -134,7 +133,6 @@ Variable group **`foodfast-api`** (id 19) exists, authorized for all pipelines, 
 |---|---|---|
 | `webAppName` | `foodfast-api-ogogundare` | no |
 | `keyVaultName` | `kv-foodfast-ogogundare` | no |
-| `azureServiceConnection` | `AzureTraining (606e824b-aaf7-4b4e-9057-b459f6a4436d)` | no |
 
 ### 8. Library variable group for function-release.yml — done
 
@@ -143,14 +141,16 @@ Variable group **`foodfast-function`** (id 20) exists, authorized for all pipeli
 | Variable | Value | Secret? |
 |---|---|---|
 | `functionAppName` | `foodfast-orders-fn-ogogundare` | no |
-| `azureServiceConnection` | `AzureTraining (606e824b-aaf7-4b4e-9057-b459f6a4436d)` | no |
 
-Nothing environment-specific is hardcoded in any of the 5 pipeline YAML files anymore. Sourcing
-`azureServiceConnection` from a variable is only unsafe when the target connection isn't open to
-all pipelines (ADO's compile-time resource-authorization scan can't resolve a variable, so it
-can't auto-trigger the one-time "this pipeline needs permission" prompt on a *restricted*
-connection) — confirmed via the `pipelinePermissions` API that `AzureTraining` has
-`allPipelines.authorized=true` in `training-proj`, so that doesn't apply here.
+`azureSubscription`/`azureServiceConnection` is hardcoded as a literal in all three deployment
+pipelines (`infra-deploy.yml`, `api-release.yml`, `function-release.yml`) and deliberately kept
+out of these variable groups — confirmed on a real pipeline run that Azure DevOps' service-
+connection authorization check matches the task input's literal string and does not expand
+`$(var)`/variable-group values before doing that lookup, so a variable-sourced value fails with
+"service connection ... could not be found." This applies to every task type that references a
+service connection (`AzureCLI@2` included, not just `AzureWebApp@1`/`AzureFunctionApp@2`/
+`AzureKeyVault@2`) — the Azure DevOps Pipeline Preview API does not catch this, since it validates
+YAML structure but doesn't run that specific authorization check.
 
 ## Ongoing workflow
 
