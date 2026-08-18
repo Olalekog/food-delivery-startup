@@ -97,6 +97,23 @@ stages:
           terraform init -backend-config=backend.hcl -reconfigure -input=false
           terraform plan -input=false -out=tfplan
 
+          # TEMPORARY DEBUG round 2 - the ignore_changes fix stopped the app_settings churn
+          # (confirmed: azurerm_linux_function_app.orders no longer appears in apply logs) and a
+          # clean function-release redeploy happened before this run, but the Event Grid webhook
+          # validation still failed with the same 401. Checking current real key state directly,
+          # decoupled from Terraform, to see whether keys are still empty (ruling out the churn
+          # theory entirely) or now populated (pointing at something else, e.g. a stale read).
+          echo "=== DEBUG round 2 ==="
+          RAW_KEYS=$(az rest --method post --uri "https://management.azure.com/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$(resourceGroupName)/providers/Microsoft.Web/sites/foodfast-orders-fn-ogogundare/host/default/listkeys?api-version=2022-03-01")
+          echo "Has masterKey: $(echo "$RAW_KEYS" | grep -q '"masterKey"' && echo yes || echo no)"
+          echo "functionKeys names (values redacted): $(echo "$RAW_KEYS" | grep -o '"functionKeys":{[^}]*}' | grep -oE '"[a-zA-Z0-9_]+":"' | sed 's/":"//;s/^"//')"
+          echo "systemKeys names (values redacted): $(echo "$RAW_KEYS" | grep -o '"systemKeys":{[^}]*}' | grep -oE '"[a-zA-Z0-9_]+":"' | sed 's/":"//;s/^"//')"
+          echo "--- app state ---"
+          az functionapp show --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --query "{state:state, availabilityState:availabilityState, usageState:usageState}" -o json || true
+          echo "--- functions list ---"
+          az functionapp function list --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --query "[].name" -o tsv || echo "FAILED_TO_LIST_FUNCTIONS"
+          echo "=== END DEBUG round 2 ==="
+
     - publish: infra/terraform/tfplan
       artifact: foodfast-tfplan
       displayName: 'Publish plan file'
