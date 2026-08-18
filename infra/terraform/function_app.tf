@@ -36,12 +36,22 @@ resource "azurerm_linux_function_app" "orders" {
   }
 }
 
-# blobs_extension_key is a platform-level system key that exists as soon as the Function App
-# resource does, independent of whether code has been deployed to it yet - but reading it right
-# after creation can occasionally race the app's provisioning, so wait like the KV RBAC grant does.
+# blobs_extension_key is a platform-level system key - reading it right after the app is created
+# OR modified can race the app's (re)provisioning. replace_triggered_by is required, not just
+# depends_on: confirmed on a real apply that time_sleep only sleeps once, at its own creation - on
+# a later apply where the function app is merely *modified* (e.g. app_settings change forcing a
+# restart), the already-existing time_sleep does NOT re-sleep, so the host-keys data source below
+# got read 1 second after a 1m15s app restart instead of waiting for it, producing an invalid key
+# and a 401 on the Event Grid webhook validation (eventgrid.tf). replace_triggered_by forces this
+# resource to be replaced - and therefore sleep again - on every change to the function app, not
+# just its first creation.
 resource "time_sleep" "wait_for_function_app" {
   depends_on      = [azurerm_linux_function_app.orders]
   create_duration = "30s"
+
+  lifecycle {
+    replace_triggered_by = [azurerm_linux_function_app.orders]
+  }
 }
 
 data "azurerm_function_app_host_keys" "orders" {
