@@ -42,7 +42,7 @@ resource "azurerm_key_vault_secret" "cosmos_key" {
   value        = azurerm_cosmosdb_account.this.primary_key
   key_vault_id = azurerm_key_vault.this.id
 
-  depends_on = [time_sleep.wait_for_kv_rbac]
+  depends_on = [azurerm_key_vault_access_policy.terraform_caller]
 }
 
 resource "azurerm_key_vault_secret" "cosmos_endpoint" {
@@ -50,5 +50,5 @@ resource "azurerm_key_vault_secret" "cosmos_endpoint" {
   value        = azurerm_cosmosdb_account.this.endpoint
   key_vault_id = azurerm_key_vault.this.id
 
-  depends_on = [time_sleep.wait_for_kv_rbac]
+  depends_on = [azurerm_key_vault_access_policy.terraform_caller]
 }

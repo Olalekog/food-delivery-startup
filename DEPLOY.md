@@ -20,19 +20,24 @@ Terraform reads it as a data source, not creating it). Azure DevOps project:
 
 ## One-time setup
 
-### 0. Grant the AzureTraining service principal RBAC-assignment rights
+### No RBAC role-assignment rights needed, by design
 
 Confirmed on a real apply (build 266): the service principal behind the `AzureTraining` ARM
-service connection can create almost everything in this stack, but gets a 403
-(`AuthorizationFailed`) on `Microsoft.Authorization/roleAssignments/write` — it can't create the
-two role assignments this stack needs (`Key Vault Secrets Officer` for itself on the new Key
-Vault, `Storage Blob Data Contributor` for the Web App's managed identity on the new storage
-account). Someone with sufficient rights on `Training-Batch-6.23` (e.g. Syed Ahsan, who created
-the `AzureTraining` connection) needs to grant the SPN (object id `5e98d324-e379-4502-a6fb-73fc5439ed2c`)
-**User Access Administrator** (or equivalent) scoped to that resource group before `terraform
-apply` can complete cleanly. Until then, expect those two `azurerm_role_assignment` resources -
-and anything that depends on them (Key Vault secrets, the Web App's blob write access) - to fail
-on every apply, even though the rest of the stack succeeds.
+service connection gets a 403 (`AuthorizationFailed`) on
+`Microsoft.Authorization/roleAssignments/write` — it can't create role assignments on
+`Training-Batch-6.23` at all, and (confirmed afterward) this is a hard, permanent constraint of
+this shared training subscription, not something grantable by asking a project admin. The stack
+was redesigned around this rather than waiting on it:
+
+- The **Key Vault** uses **Access Policies**, not RBAC authorization (`enable_rbac_authorization =
+  false` in `key_vault.tf`) — granting an access policy is a property write on the vault resource
+  itself, which the SPN already has, not an `Authorization/roleAssignments` action.
+- The **Web App** has no system-assigned identity and no `Storage Blob Data Contributor` grant.
+  The API authenticates to blob storage via a **connection string** (`storageConnectionString`,
+  written to the Key Vault by Terraform, injected as `STORAGE_CONNECTION_STRING` by
+  `api-release.yml` exactly like the Cosmos key already was) instead of managed identity.
+
+Nothing in this stack requires `Microsoft.Authorization/roleAssignments/write` anymore.
 
 ### 1. Terraform remote state
 

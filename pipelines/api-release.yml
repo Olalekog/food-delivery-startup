@@ -15,12 +15,14 @@
 # specific to AzureWebApp@1/AzureKeyVault@2 - the same thing happens with AzureCLI@2 in
 # infra-deploy.yml; the Pipeline Preview API doesn't catch it because it doesn't run this check).
 #
-# Pulls the Cosmos primary key straight from that Key Vault via
-# AzureKeyVault@2 - no variable group needed as an intermediary for the key itself, same
+# Pulls the Cosmos primary key and the storage connection string straight from that Key Vault via
+# AzureKeyVault@2 - no variable group needed as an intermediary for either, same
 # direct-from-Key-Vault pattern as cosmosdb-data-fetch/azure-pipelines.yml. This is what "Cosmos
 # key lives in Key Vault and is injected by the pipeline" means in practice: the key never lives
 # in a repo file, a Library variable group, or the Terraform-managed Web App config - only in the
-# vault and, transiently, in this deploy step's app settings push.
+# vault and, transiently, in this deploy step's app settings push. The storage connection string
+# follows the same pattern (rather than managed identity/RBAC) for the same permission-constraint
+# reason documented in infra/terraform/web_app.tf.
 #
 # Runs on the self-hosted agent "OGOGUNDARE", registered in the "self-hosted" agent pool.
 # The target Web App is Linux App Service; SCM_DO_BUILD_DURING_DEPLOYMENT=true makes Kudu's Oryx
@@ -60,11 +62,11 @@ stages:
           - checkout: none
 
           - task: AzureKeyVault@2
-            displayName: 'Fetch Cosmos key from Key Vault'
+            displayName: 'Fetch Cosmos key and storage connection string from Key Vault'
             inputs:
               azureSubscription: 'AzureTraining (606e824b-aaf7-4b4e-9057-b459f6a4436d)'
               KeyVaultName: '$(keyVaultName)'
-              SecretsFilter: 'cosmosPrimaryKey,cosmosEndpoint'
+              SecretsFilter: 'cosmosPrimaryKey,cosmosEndpoint,storageConnectionString'
               RunAsPreJob: false
 
           - download: apiBuild
@@ -77,4 +79,4 @@ stages:
               appType: webAppLinux
               appName: '$(webAppName)'
               package: '$(Pipeline.Workspace)/apiBuild/foodfast-api-release/latest.zip'
-              appSettings: '-COSMOS_KEY $(cosmosPrimaryKey) -COSMOS_ENDPOINT $(cosmosEndpoint) -SCM_DO_BUILD_DURING_DEPLOYMENT true'
+              appSettings: '-COSMOS_KEY $(cosmosPrimaryKey) -COSMOS_ENDPOINT $(cosmosEndpoint) -STORAGE_CONNECTION_STRING $(storageConnectionString) -SCM_DO_BUILD_DURING_DEPLOYMENT true'

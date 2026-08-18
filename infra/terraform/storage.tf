@@ -16,3 +16,12 @@ resource "azurerm_storage_container" "orders" {
   storage_account_name  = azurerm_storage_account.this.name
   container_access_type = "private"
 }
+
+# Connection-string-based blob access, not managed identity/RBAC - see web_app.tf for why.
+resource "azurerm_key_vault_secret" "storage_connection_string" {
+  name         = "storageConnectionString"
+  value        = azurerm_storage_account.this.primary_connection_string
+  key_vault_id = azurerm_key_vault.this.id
+
+  depends_on = [azurerm_key_vault_access_policy.terraform_caller]
+}

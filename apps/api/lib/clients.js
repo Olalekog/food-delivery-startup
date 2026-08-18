@@ -1,6 +1,5 @@
 const { CosmosClient } = require('@azure/cosmos');
 const { BlobServiceClient } = require('@azure/storage-blob');
-const { DefaultAzureCredential } = require('@azure/identity');
 
 // Lazily constructed so the module can be required (e.g. by tests) without live Azure
 // credentials in the environment - only fails once a route actually needs a client.
@@ -20,19 +19,18 @@ function getCosmosContainer() {
   return cosmosContainer;
 }
 
-// Uses the Web App's system-assigned managed identity (granted Storage Blob Data Contributor
-// in Terraform) rather than a storage account key.
+// Connection-string-based, not managed identity/RBAC - the training subscription's service
+// principal has no Microsoft.Authorization/roleAssignments/write rights to grant Storage Blob
+// Data Contributor, so this follows the same Key-Vault-secret-injected-by-the-pipeline pattern
+// as the Cosmos key instead.
 function getOrdersBlobContainerClient() {
   if (!blobContainerClient) {
-    const accountName = process.env.STORAGE_ACCOUNT_NAME;
+    const connectionString = process.env.STORAGE_CONNECTION_STRING;
     const containerName = process.env.ORDERS_CONTAINER_NAME || 'orders';
-    if (!accountName) {
-      throw new Error('STORAGE_ACCOUNT_NAME is not set');
+    if (!connectionString) {
+      throw new Error('STORAGE_CONNECTION_STRING is not set');
     }
-    const blobServiceClient = new BlobServiceClient(
-      `https://${accountName}.blob.core.windows.net`,
-      new DefaultAzureCredential()
-    );
+    const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
     blobContainerClient = blobServiceClient.getContainerClient(containerName);
   }
   return blobContainerClient;
