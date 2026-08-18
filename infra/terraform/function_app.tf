@@ -34,6 +34,19 @@ resource "azurerm_linux_function_app" "orders" {
     AzureWebJobsFeatureFlags       = "EnableWorkerIndexing"
     SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
   }
+
+  lifecycle {
+    # Confirmed on real applies: this resource showed "Modifying..." on every single apply, and
+    # a debug check against the real host (see git history) found functionKeys and systemKeys
+    # both completely empty despite masterKey existing - i.e. the Functions host had never
+    # finished starting up. app_settings being the plain source of truth here meant every
+    # terraform apply reset it back to only these 4 keys, silently wiping out whatever
+    # AzureFunctionApp@2 (function-release.yml) added during code deployment (e.g.
+    # WEBSITE_RUN_FROM_PACKAGE) - undoing the deployment on every infra apply and leaving the
+    # host stuck. Same category of fix as web_app.tf's ignore_changes, just for the whole map
+    # since nothing here needs to change post-creation.
+    ignore_changes = [app_settings]
+  }
 }
 
 # blobs_extension_key is a platform-level system key - reading it right after the app is created
