@@ -95,13 +95,7 @@ stages:
           # it as a one-time manual prerequisite.
           az storage container create --name "$(tfstateContainerName)" --account-name "$(storageAccountName)" --auth-mode login
           terraform init -backend-config=backend.hcl -reconfigure -input=false
-          # -replace: one-time recovery for the Key Vault created before the Access-Policy
-          # redesign. Confirmed on a real apply that toggling enable_rbac_authorization on an
-          # EXISTING vault is itself an Authorization/roleAssignments action ("Caller is not
-          # allowed to change permission model"), so it must be destroyed and recreated, not
-          # updated in place. Safe: the vault holds zero secrets (every prior write failed before
-          # this could succeed). Remove this line once this apply succeeds.
-          terraform plan -input=false -out=tfplan -replace=azurerm_key_vault.this
+          terraform plan -input=false -out=tfplan
 
     - publish: infra/terraform/tfplan
       artifact: foodfast-tfplan

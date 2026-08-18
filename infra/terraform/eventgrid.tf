@@ -10,6 +10,11 @@ resource "azurerm_eventgrid_system_topic" "storage" {
 # Blob-trigger-with-source=EventGrid (the Node v4 `app.storageBlob({source:'EventGrid'})` model)
 # uses the Functions host's fixed /runtime/webhooks/blobs route, not a native eventGridTrigger
 # binding - so this is a webhook_endpoint subscription, not azure_function_endpoint/function_id.
+#
+# urlencode() on the key is required, not cosmetic - confirmed on a real apply that the raw key
+# produced "Webhook endpoint validation failed ... (401) Unauthorized" even with the function
+# code already deployed. Function host keys routinely contain +, /, = (base64-shaped), which
+# corrupt a query string when interpolated raw.
 resource "azurerm_eventgrid_system_topic_event_subscription" "orders_blob_to_function" {
   name                  = "orders-blob-to-function"
   system_topic          = azurerm_eventgrid_system_topic.storage.name
@@ -22,7 +27,7 @@ resource "azurerm_eventgrid_system_topic_event_subscription" "orders_blob_to_fun
   }
 
   webhook_endpoint {
-    url                               = "https://${azurerm_linux_function_app.orders.default_hostname}/runtime/webhooks/blobs?functionName=Host.Functions.blobOrderTrigger&code=${data.azurerm_function_app_host_keys.orders.blobs_extension_key}"
+    url                               = "https://${azurerm_linux_function_app.orders.default_hostname}/runtime/webhooks/blobs?functionName=Host.Functions.blobOrderTrigger&code=${urlencode(data.azurerm_function_app_host_keys.orders.blobs_extension_key)}"
     max_events_per_batch              = 1
     preferred_batch_size_in_kilobytes = 64
   }
