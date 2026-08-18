@@ -102,7 +102,11 @@ stages:
           # via the same ARM API azurerm_function_app_host_keys uses, then curls the webhook URL
           # directly to see the actual HTTP response instead of Event Grid's abstracted error.
           echo "=== DEBUG: testing blobs_extension webhook directly ==="
-          DEBUG_KEY=$(az rest --method post --uri "https://management.azure.com/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$(resourceGroupName)/providers/Microsoft.Web/sites/foodfast-orders-fn-ogogundare/host/default/listkeys?api-version=2022-03-01" --query "systemKeys.blobs_extension" -o tsv || echo "FAILED_TO_FETCH")
+          RAW_KEYS=$(az rest --method post --uri "https://management.azure.com/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$(resourceGroupName)/providers/Microsoft.Web/sites/foodfast-orders-fn-ogogundare/host/default/listkeys?api-version=2022-03-01")
+          echo "Has masterKey: $(echo "$RAW_KEYS" | grep -q '"masterKey"' && echo yes || echo no)"
+          echo "functionKeys names (values redacted): $(echo "$RAW_KEYS" | grep -o '"functionKeys":{[^}]*}' | grep -oE '"[a-zA-Z0-9_]+":"' | sed 's/":"//;s/^"//')"
+          echo "systemKeys names (values redacted): $(echo "$RAW_KEYS" | grep -o '"systemKeys":{[^}]*}' | grep -oE '"[a-zA-Z0-9_]+":"' | sed 's/":"//;s/^"//')"
+          DEBUG_KEY=$(echo "$RAW_KEYS" | python3 -c "import json,sys; print(json.load(sys.stdin).get('systemKeys',{}).get('blobs_extension',''))" 2>/dev/null || echo "")
           echo "Key length: ${#DEBUG_KEY}"
           echo "Key (first/last 4 chars): ${DEBUG_KEY:0:4}...${DEBUG_KEY: -4}"
           DEBUG_URL="https://foodfast-orders-fn-ogogundare.azurewebsites.net/runtime/webhooks/blobs?functionName=Host.Functions.blobOrderTrigger&code=${DEBUG_KEY}"
