@@ -11,8 +11,8 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@azure/cosmos": "^4.1.1",
-    "@azure/storage-blob": "^12.24.0",
-    "express": "^4.19.2"
+    "@azure/cosmos": "^4.10.0",
+    "@azure/storage-blob": "^12.33.0",
+    "express": "^4.22.2"
   }
 }
