@@ -112,6 +112,8 @@ stages:
           az functionapp show --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --query "{state:state, availabilityState:availabilityState, usageState:usageState}" -o json || true
           echo "--- functions list ---"
           az functionapp function list --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --query "[].name" -o tsv || echo "FAILED_TO_LIST_FUNCTIONS"
+          echo "--- relevant build/run app settings (non-secret) ---"
+          az functionapp config appsettings list --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --query "[?name=='WEBSITE_RUN_FROM_PACKAGE' || name=='ENABLE_ORYX_BUILD' || name=='SCM_DO_BUILD_DURING_DEPLOYMENT' || name=='FUNCTIONS_WORKER_RUNTIME' || name=='AzureWebJobsFeatureFlags' || name=='FUNCTIONS_EXTENSION_VERSION']" -o table || true
           echo "=== END DEBUG round 2 ==="
 
     - publish: infra/terraform/tfplan
