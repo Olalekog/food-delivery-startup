@@ -97,6 +97,21 @@ stages:
           terraform init -backend-config=backend.hcl -reconfigure -input=false
           terraform plan -input=false -out=tfplan
 
+          # TEMPORARY DEBUG - remove once the orders_blob_to_function 401 is root-caused.
+          # Bypasses Terraform/Event Grid entirely: fetches the real blobs_extension system key
+          # via the same ARM API azurerm_function_app_host_keys uses, then curls the webhook URL
+          # directly to see the actual HTTP response instead of Event Grid's abstracted error.
+          echo "=== DEBUG: testing blobs_extension webhook directly ==="
+          DEBUG_KEY=$(az rest --method post --uri "https://management.azure.com/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$(resourceGroupName)/providers/Microsoft.Web/sites/foodfast-orders-fn-ogogundare/host/default/listkeys?api-version=2022-03-01" --query "systemKeys.blobs_extension" -o tsv || echo "FAILED_TO_FETCH")
+          echo "Key length: ${#DEBUG_KEY}"
+          echo "Key (first/last 4 chars): ${DEBUG_KEY:0:4}...${DEBUG_KEY: -4}"
+          DEBUG_URL="https://foodfast-orders-fn-ogogundare.azurewebsites.net/runtime/webhooks/blobs?functionName=Host.Functions.blobOrderTrigger&code=${DEBUG_KEY}"
+          echo "Testing GET against webhook URL..."
+          curl -s -o /tmp/debug_response.txt -w "HTTP_STATUS:%{http_code}\n" "$DEBUG_URL" || true
+          echo "Response body:"
+          cat /tmp/debug_response.txt || true
+          echo "=== END DEBUG ==="
+
     - publish: infra/terraform/tfplan
       artifact: foodfast-tfplan
       displayName: 'Publish plan file'
