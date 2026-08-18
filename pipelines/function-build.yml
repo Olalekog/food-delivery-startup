@@ -1,8 +1,10 @@
-# CI for the order-notification Function App - mirrors api-build.yml's Build -> Test ->
-# PublishArtifact shape (no test suite here yet, so Test is skipped), publishing source only
-# (no node_modules) for function-release.yml to deploy. Node dependencies install server-side via
-# Oryx, since the Function App has SCM_DO_BUILD_DURING_DEPLOYMENT=true (see
-# infra/terraform/function_app.tf).
+# CI for the order-notification Function App - publishes node_modules bundled into the zip,
+# unlike api-build.yml's source-only artifact. Confirmed on a real deploy+apply cycle: Function
+# Apps deployed via AzureFunctionApp@2 get WEBSITE_RUN_FROM_PACKAGE=1 by default, which mounts the
+# package read-only and skips Oryx's server-side build entirely - SCM_DO_BUILD_DURING_DEPLOYMENT
+# has no effect under it. A source-only zip (the Web App's pattern) left @azure/functions never
+# installed, so the host indexed zero functions and never generated any keys. Bundling
+# node_modules is the standard pattern for Node Function Apps for exactly this reason.
 #
 # Runs on the self-hosted agent "OGOGUNDARE", registered in the "self-hosted" agent pool.
 
@@ -24,9 +26,19 @@ stages:
       demands:
         - Agent.Name -equals OGOGUNDARE
     steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '20.x'
+
     - powershell: |
-        Compress-Archive -Path host.json, package.json, src -DestinationPath "$(Build.ArtifactStagingDirectory)/latest.zip" -Force
-      displayName: 'Zip function app source'
+        npm install --omit=dev
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      displayName: 'npm install --omit=dev'
+      workingDirectory: apps/function
+
+    - powershell: |
+        Compress-Archive -Path host.json, package.json, node_modules, src -DestinationPath "$(Build.ArtifactStagingDirectory)/latest.zip" -Force
+      displayName: 'Zip function app (including node_modules)'
       workingDirectory: apps/function
 
     - publish: '$(Build.ArtifactStagingDirectory)/latest.zip'
