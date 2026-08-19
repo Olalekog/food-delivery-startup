@@ -24,7 +24,7 @@ resource "azurerm_linux_function_app" "orders" {
 
   site_config {
     application_stack {
-      node_version = "20"
+      node_version = "24"
     }
   }
 
@@ -58,21 +58,42 @@ resource "azurerm_linux_function_app" "orders" {
   }
 }
 
-# blobs_extension_key is a platform-level system key - reading it right after the app is created
-# OR modified can race the app's (re)provisioning. replace_triggered_by is required, not just
-# depends_on: confirmed on a real apply that time_sleep only sleeps once, at its own creation - on
-# a later apply where the function app is merely *modified* (e.g. app_settings change forcing a
-# restart), the already-existing time_sleep does NOT re-sleep, so the host-keys data source below
-# got read 1 second after a 1m15s app restart instead of waiting for it, producing an invalid key
-# and a 401 on the Event Grid webhook validation (eventgrid.tf). replace_triggered_by forces this
-# resource to be replaced - and therefore sleep again - on every change to the function app, not
-# just its first creation.
-resource "time_sleep" "wait_for_function_app" {
-  depends_on      = [azurerm_linux_function_app.orders]
-  create_duration = "30s"
+# A fixed-duration time_sleep here (even with replace_triggered_by re-arming it on every function
+# app change) still only guards Terraform-visible restarts. It does nothing when the host restarts
+# for a reason Terraform doesn't see - e.g. function-release.yml redeploying code out-of-band right
+# before an unrelated `terraform apply` - and a 30s guess was already confirmed too short once
+# (functionKeys/systemKeys came back empty despite masterKey existing). Polling until the actual
+# system key is non-empty removes the guesswork: it waits exactly as long as the host needs,
+# whether that's 5s or 5m.
+#
+# triggers uses timestamp(), not the function app id, deliberately - this must re-run and re-poll
+# on every apply, not just on function app creation/replacement, because the out-of-band restart
+# it's guarding against (function-release.yml) never changes anything Terraform can see on the
+# function app resource itself.
+resource "null_resource" "wait_for_function_keys" {
+  triggers = {
+    always_run = timestamp()
+  }
 
-  lifecycle {
-    replace_triggered_by = [azurerm_linux_function_app.orders]
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      for i in $(seq 1 30); do
+        key=$(az functionapp keys list \
+          --name "${azurerm_linux_function_app.orders.name}" \
+          --resource-group "${data.azurerm_resource_group.main.name}" \
+          --query "systemKeys.blobs_extension" -o tsv 2>/dev/null || true)
+        if [ -n "$key" ] && [ "$key" != "None" ]; then
+          echo "blobs_extension system key is ready"
+          exit 0
+        fi
+        echo "Waiting for blobs_extension system key to become available (attempt $i/30)..."
+        sleep 10
+      done
+      echo "Timed out waiting for blobs_extension system key to become available" >&2
+      exit 1
+    EOT
   }
 }
 
@@ -80,5 +101,5 @@ data "azurerm_function_app_host_keys" "orders" {
   name                = azurerm_linux_function_app.orders.name
   resource_group_name = data.azurerm_resource_group.main.name
 
-  depends_on = [time_sleep.wait_for_function_app]
+  depends_on = [null_resource.wait_for_function_keys]
 }
