@@ -97,33 +97,21 @@ stages:
           terraform init -backend-config=backend.hcl -reconfigure -input=false
           terraform plan -input=false -out=tfplan
 
-          # TEMPORARY DEBUG round 6 - docker.log turned out to be container platform lifecycle
-          # only (start/stop/mount/probe), not the Functions host/worker log - no actual
-          # application-level error in it. Checking inside the Application/ and StartupLogs/
-          # subdirectories instead, which are more likely to hold real indexing/worker errors.
+          # TEMPORARY DEBUG round 7 - confirmed definitively: /admin/functions returns [], the
+          # wwwroot zip is only 257 bytes (code never landed), and Application/Functions/ is
+          # empty. StartupLogs/..._success.log (65KB, written right after deployment) is the
+          # remaining lead - almost certainly Oryx/Kudu's actual build log, which should explain
+          # why the content never made it into wwwroot.
           set +e
-          echo "=== DEBUG round 6 ==="
+          echo "=== DEBUG round 7 ==="
           KUDU_CREDS=$(az functionapp deployment list-publishing-credentials --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --query "{u:publishingUserName, p:publishingPassword}" -o json)
           KUDU_USER=$(echo "$KUDU_CREDS" | python3 -c "import json,sys; print(json.load(sys.stdin)['u'])" 2>/dev/null)
           KUDU_PASS=$(echo "$KUDU_CREDS" | python3 -c "import json,sys; print(json.load(sys.stdin)['p'])" 2>/dev/null)
-
-          echo "--- Application/ listing ---"
-          curl -s -u "$KUDU_USER:$KUDU_PASS" "https://foodfast-orders-fn-ogogundare.scm.azurewebsites.net/api/vfs/LogFiles/Application/"
-          echo ""
-          echo "--- StartupLogs/ listing ---"
-          curl -s -u "$KUDU_USER:$KUDU_PASS" "https://foodfast-orders-fn-ogogundare.scm.azurewebsites.net/api/vfs/LogFiles/StartupLogs/"
-          echo ""
-
-          echo "--- full wwwroot recursive listing (is code really missing, or just not shown at top level?) ---"
-          curl -s -u "$KUDU_USER:$KUDU_PASS" "https://foodfast-orders-fn-ogogundare.scm.azurewebsites.net/api/zip/site/wwwroot/" -o /tmp/wwwroot.zip -w "zip download status: %{http_code}, size: %{size_download}\n"
-
-          echo "--- host status again, full ---"
-          MASTER_KEY=$(az rest --method post --uri "https://management.azure.com/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$(resourceGroupName)/providers/Microsoft.Web/sites/foodfast-orders-fn-ogogundare/host/default/listkeys?api-version=2022-03-01" --query masterKey -o tsv)
-          curl -s "https://foodfast-orders-fn-ogogundare.azurewebsites.net/admin/host/status?code=$MASTER_KEY"
-          echo ""
-          echo "--- /admin/functions (list, master-key authenticated) ---"
-          curl -s "https://foodfast-orders-fn-ogogundare.azurewebsites.net/admin/functions?code=$MASTER_KEY" -w "\nHTTP:%{http_code}\n"
-          echo "=== END DEBUG round 6 ==="
+          curl -s -u "$KUDU_USER:$KUDU_PASS" "https://foodfast-orders-fn-ogogundare.scm.azurewebsites.net/api/vfs/LogFiles/StartupLogs/2026_08_18_pl0sdlwk000L2J_success.log" > /tmp/success.log
+          echo "success.log size: $(wc -c < /tmp/success.log)"
+          echo "--- lines matching error/exception/fail/npm/oryx/zip/extract/warn (case-insensitive) ---"
+          grep -iE "error|exception|fail|npm|oryx|zip|extract|warn|node_modules|package.json" /tmp/success.log | head -100
+          echo "=== END DEBUG round 7 ==="
           set -e
 
     - publish: infra/terraform/tfplan
