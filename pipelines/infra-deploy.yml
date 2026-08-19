@@ -101,19 +101,28 @@ stages:
           # via a real build+release), but the same 401 persists. Checking whether functions are
           # now actually indexed, and if not, pulling recent deployment log entries to see the
           # real failure instead of continuing to guess.
+          set +e
           echo "=== DEBUG round 3 ==="
           echo "--- functions list ---"
-          az functionapp function list --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --query "[].name" -o tsv || echo "FAILED_TO_LIST_FUNCTIONS"
+          az functionapp function list --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --query "[].name" -o tsv
+          echo "(exit: $?)"
           echo "--- systemKeys names ---"
-          RAW_KEYS=$(az rest --method post --uri "https://management.azure.com/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$(resourceGroupName)/providers/Microsoft.Web/sites/foodfast-orders-fn-ogogundare/host/default/listkeys?api-version=2022-03-01")
+          RAW_KEYS=$(az rest --method post --uri "https://management.azure.com/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$(resourceGroupName)/providers/Microsoft.Web/sites/foodfast-orders-fn-ogogundare/host/default/listkeys?api-version=2022-03-01" 2>&1)
+          echo "listkeys exit: $?"
           echo "$RAW_KEYS" | grep -o '"systemKeys":{[^}]*}' | grep -oE '"[a-zA-Z0-9_]+":"' | sed 's/":"//;s/^"//'
           echo "--- last 5 deployments ---"
-          az functionapp deployment list --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --query "[-5:].{id:id, status:status, message:message, active:active}" -o json || true
-          echo "--- recent log-stream style: kudu deployment log for latest deployment ---"
+          az functionapp deployment list --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --query "[-5:].{id:id, status:status, message:message, active:active}" -o json
+          echo "--- kudu deployment log for latest deployment ---"
           LATEST_DEPLOY=$(az functionapp deployment list --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --query "[-1:].id" -o tsv)
           echo "latest deployment id: $LATEST_DEPLOY"
-          az rest --method get --uri "https://management.azure.com/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$(resourceGroupName)/providers/Microsoft.Web/sites/foodfast-orders-fn-ogogundare/deployments/$LATEST_DEPLOY/log?api-version=2022-03-01" -o json || true
+          az rest --method get --uri "https://management.azure.com/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$(resourceGroupName)/providers/Microsoft.Web/sites/foodfast-orders-fn-ogogundare/deployments/$LATEST_DEPLOY/log?api-version=2022-03-01" -o json
+          echo "--- kudu SCM log stream (recent) ---"
+          KUDU_CREDS=$(az functionapp deployment list-publishing-credentials --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --query "{u:publishingUserName, p:publishingPassword}" -o json)
+          KUDU_USER=$(echo "$KUDU_CREDS" | python3 -c "import json,sys; print(json.load(sys.stdin)['u'])" 2>/dev/null)
+          KUDU_PASS=$(echo "$KUDU_CREDS" | python3 -c "import json,sys; print(json.load(sys.stdin)['p'])" 2>/dev/null)
+          curl -s -u "$KUDU_USER:$KUDU_PASS" "https://foodfast-orders-fn-ogogundare.scm.azurewebsites.net/api/deployments/latest/log" | head -c 3000
           echo "=== END DEBUG round 3 ==="
+          set -e
 
     - publish: infra/terraform/tfplan
       artifact: foodfast-tfplan
