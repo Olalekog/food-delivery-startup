@@ -167,6 +167,14 @@ stages:
 
           - task: AzureCLI@2
             displayName: 'terraform init && terraform apply'
+            # env.SYSTEM_ACCESSTOKEN is required, not cosmetic: function_app.tf's
+            # wait_for_function_keys provisioner uses it to auto-trigger foodfast-function-release
+            # (via `az pipelines run`, authenticated with this job's own OAuth token - no separate
+            # PAT) if it finds the function app with zero functions indexed - e.g. after a Terraform
+            # apply replaces it. System.AccessToken is only ever populated for the job that
+            # explicitly maps it like this; it's not otherwise visible to inlineScript.
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
             inputs:
               azureSubscription: 'AzureTraining (606e824b-aaf7-4b4e-9057-b459f6a4436d)'
               scriptType: bash

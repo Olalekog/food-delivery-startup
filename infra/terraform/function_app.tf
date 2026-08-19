@@ -66,7 +66,20 @@ resource "azurerm_linux_function_app" "orders" {
 # system key is non-empty removes the guesswork: it waits exactly as long as the host needs,
 # whether that's 5s or 5m.
 #
-# triggers uses timestamp(), not the function app id, deliberately - this must re-run and re-poll
+# blobs_extension only ever appears once an EventGrid-sourced blob trigger is actually indexed -
+# never on a function app with no code deployed. That happens for real, not just hypothetically:
+# an azurerm provider bump (3.x -> 4.x) once forced this exact resource to be replaced, which wiped
+# its deployed code, and foodfast-function-release only auto-fires off foodfast-function-build
+# completing - never off infra-deploy - so nothing re-deployed the code afterward. Below, before
+# polling for the key, self-heal that case by triggering foodfast-function-release directly via the
+# Azure DevOps REST API (using the job's own System.AccessToken - see infra-deploy.yml's Apply
+# stage, which passes it in as $SYSTEM_ACCESSTOKEN - so no separate PAT/secret is needed) and
+# waiting for it to finish, instead of leaving a human to notice and re-run it by hand. This needs
+# the project's Build Service identity to have "Queue builds" allowed on foodfast-function-release
+# (Project Settings > Repositories > foodfast-function-release > Security) - it does by default
+# unless that's been locked down.
+#
+# triggers uses timestamp(), not the function app id, deliberately - this must re-run and re-check
 # on every apply, not just on function app creation/replacement, because the out-of-band restart
 # it's guarding against (function-release.yml) never changes anything Terraform can see on the
 # function app resource itself.
@@ -79,10 +92,49 @@ resource "null_resource" "wait_for_function_keys" {
     interpreter = ["/bin/bash", "-c"]
     command     = <<-EOT
       set -euo pipefail
+
+      function_app_name="${azurerm_linux_function_app.orders.name}"
+      resource_group="${data.azurerm_resource_group.main.name}"
+
+      indexed=$(az functionapp function list \
+        --name "$function_app_name" \
+        --resource-group "$resource_group" \
+        --query "[].name" -o tsv 2>/dev/null || true)
+
+      if [ -z "$indexed" ]; then
+        if [ -z "$${SYSTEM_ACCESSTOKEN:-}" ]; then
+          echo "No functions indexed on $function_app_name, and SYSTEM_ACCESSTOKEN isn't set - cannot auto-trigger foodfast-function-release. Run it manually." >&2
+          exit 1
+        fi
+
+        echo "No functions indexed on $function_app_name - triggering foodfast-function-release to redeploy before waiting for the blobs_extension key."
+
+        az devops configure --defaults organization=https://dev.azure.com/324DSTraining project=training-proj
+        export AZURE_DEVOPS_EXT_PAT="$SYSTEM_ACCESSTOKEN"
+
+        run_id=$(az pipelines run --name foodfast-function-release --query id -o tsv)
+        echo "Triggered foodfast-function-release run $run_id, waiting for it to complete..."
+
+        for i in $(seq 1 60); do
+          status=$(az pipelines runs show --id "$run_id" --query status -o tsv)
+          if [ "$status" = "completed" ]; then
+            result=$(az pipelines runs show --id "$run_id" --query result -o tsv)
+            if [ "$result" != "succeeded" ]; then
+              echo "foodfast-function-release run $run_id finished with result '$result', not 'succeeded'" >&2
+              exit 1
+            fi
+            echo "foodfast-function-release run $run_id succeeded"
+            break
+          fi
+          echo "foodfast-function-release run $run_id still $status (attempt $i/60)..."
+          sleep 10
+        done
+      fi
+
       for i in $(seq 1 30); do
         key=$(az functionapp keys list \
-          --name "${azurerm_linux_function_app.orders.name}" \
-          --resource-group "${data.azurerm_resource_group.main.name}" \
+          --name "$function_app_name" \
+          --resource-group "$resource_group" \
           --query "systemKeys.blobs_extension" -o tsv 2>/dev/null || true)
         if [ -n "$key" ] && [ "$key" != "None" ]; then
           echo "blobs_extension system key is ready"
@@ -91,7 +143,12 @@ resource "null_resource" "wait_for_function_keys" {
         echo "Waiting for blobs_extension system key to become available (attempt $i/30)..."
         sleep 10
       done
-      echo "Timed out waiting for blobs_extension system key to become available" >&2
+      echo "Timed out waiting for blobs_extension system key to become available." >&2
+      echo "This key only exists once the host has an EventGrid-sourced blob trigger indexed." >&2
+      echo "It never appears on a function app with no code deployed - check:" >&2
+      echo "  az functionapp function list --name $function_app_name --resource-group $resource_group" >&2
+      echo "If that returns [], manually run the foodfast-function-release pipeline (or its" >&2
+      echo "upstream foodfast-function-build) to redeploy blobOrderTrigger, then re-run this apply." >&2
       exit 1
     EOT
   }
