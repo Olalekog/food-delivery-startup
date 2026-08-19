@@ -76,8 +76,9 @@ resource "azurerm_linux_function_app" "orders" {
 # stage, which passes it in as $SYSTEM_ACCESSTOKEN - so no separate PAT/secret is needed) and
 # waiting for it to finish, instead of leaving a human to notice and re-run it by hand. This needs
 # the project's Build Service identity to have "Queue builds" allowed on foodfast-function-release
-# (Project Settings > Repositories > foodfast-function-release > Security) - it does by default
-# unless that's been locked down.
+# (open the pipeline > (...) > Security) - confirmed NOT granted by default on training-proj
+# (TF215106 access denied on a real run) - see DEPLOY.md's one-time setup for the fix; this
+# provisioner fails loudly with that same error if it's ever missing again.
 #
 # triggers uses timestamp(), not the function app id, deliberately - this must re-run and re-check
 # on every apply, not just on function app creation/replacement, because the out-of-band restart
@@ -109,16 +110,23 @@ resource "null_resource" "wait_for_function_keys" {
 
         echo "No functions indexed on $function_app_name - triggering foodfast-function-release to redeploy before waiting for the blobs_extension key."
 
-        az devops configure --defaults organization=https://dev.azure.com/324DSTraining project=training-proj
         export AZURE_DEVOPS_EXT_PAT="$SYSTEM_ACCESSTOKEN"
+        devops_org="https://dev.azure.com/324DSTraining"
+        devops_project="training-proj"
 
-        run_id=$(az pipelines run --name foodfast-function-release --query id -o tsv)
+        run_id=$(az pipelines run --name foodfast-function-release \
+          --organization "$devops_org" --project "$devops_project" --detect false \
+          --query id -o tsv)
         echo "Triggered foodfast-function-release run $run_id, waiting for it to complete..."
 
         for i in $(seq 1 60); do
-          status=$(az pipelines runs show --id "$run_id" --query status -o tsv)
+          status=$(az pipelines runs show --id "$run_id" \
+            --organization "$devops_org" --project "$devops_project" --detect false \
+            --query status -o tsv)
           if [ "$status" = "completed" ]; then
-            result=$(az pipelines runs show --id "$run_id" --query result -o tsv)
+            result=$(az pipelines runs show --id "$run_id" \
+              --organization "$devops_org" --project "$devops_project" --detect false \
+              --query result -o tsv)
             if [ "$result" != "succeeded" ]; then
               echo "foodfast-function-release run $run_id finished with result '$result', not 'succeeded'" >&2
               exit 1

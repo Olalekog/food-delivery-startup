@@ -181,6 +181,19 @@ service connection (`AzureCLI@2` included, not just `AzureWebApp@1`/`AzureFuncti
 `AzureKeyVault@2`) — the Azure DevOps Pipeline Preview API does not catch this, since it validates
 YAML structure but doesn't run that specific authorization check.
 
+### 9. "Queue builds" permission for foodfast-infra-deploy on foodfast-function-release
+
+`infra/terraform/function_app.tf`'s `wait_for_function_keys` provisioner self-heals a function app
+with zero indexed functions (e.g. after a Terraform-driven replacement wipes its code) by queuing
+`foodfast-function-release` itself, authenticated with the running job's own `System.AccessToken`
+— see `pipelines/infra-deploy.yml`'s Apply stage. That requires the **training-proj Build Service
+(324DSTraining)** identity to have **Queue builds** allowed on `foodfast-function-release`. Not
+granted by default — confirmed on a real run (`TF215106: Access denied ... needs Queue builds
+permissions for build pipeline 44:foodfast-function-release`). One-time fix:
+
+`foodfast-function-release` pipeline → **⋮** → **Security** → find **training-proj Build Service
+(324DSTraining)** → set **Queue builds** to **Allow**.
+
 ## Ongoing workflow
 
 Push to `main`:
