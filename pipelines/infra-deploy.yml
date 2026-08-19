@@ -97,22 +97,16 @@ stages:
           terraform init -backend-config=backend.hcl -reconfigure -input=false
           terraform plan -input=false -out=tfplan
 
-          # TEMPORARY DEBUG round 7 - confirmed definitively: /admin/functions returns [], the
-          # wwwroot zip is only 257 bytes (code never landed), and Application/Functions/ is
-          # empty. StartupLogs/..._success.log (65KB, written right after deployment) is the
-          # remaining lead - almost certainly Oryx/Kudu's actual build log, which should explain
-          # why the content never made it into wwwroot.
-          set +e
-          echo "=== DEBUG round 7 ==="
-          KUDU_CREDS=$(az functionapp deployment list-publishing-credentials --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --query "{u:publishingUserName, p:publishingPassword}" -o json)
-          KUDU_USER=$(echo "$KUDU_CREDS" | python3 -c "import json,sys; print(json.load(sys.stdin)['u'])" 2>/dev/null)
-          KUDU_PASS=$(echo "$KUDU_CREDS" | python3 -c "import json,sys; print(json.load(sys.stdin)['p'])" 2>/dev/null)
-          curl -s -u "$KUDU_USER:$KUDU_PASS" "https://foodfast-orders-fn-ogogundare.scm.azurewebsites.net/api/vfs/LogFiles/StartupLogs/2026_08_18_pl0sdlwk000L2J_success.log" > /tmp/success.log
-          echo "success.log size: $(wc -c < /tmp/success.log)"
-          echo "--- lines matching error/exception/fail/npm/oryx/zip/extract/warn (case-insensitive) ---"
-          grep -iE "error|exception|fail|npm|oryx|zip|extract|warn|node_modules|package.json" /tmp/success.log | head -100
-          echo "=== END DEBUG round 7 ==="
-          set -e
+          # ONE-TIME FIX - confirmed definitively across debug rounds 4-7: /admin/functions
+          # returns [], the wwwroot zip is only 257 bytes (code never landed past host.json), and
+          # every log Kudu exposes (docker.log, StartupLogs/*_success.log) is container-lifecycle
+          # only - no Oryx/npm/build output anywhere, meaning no build step is running at all.
+          # That's consistent with WEBSITE_RUN_FROM_PACKAGE=1 (Run-From-Package), which this app
+          # ended up with by default. function_app.tf now declares WEBSITE_RUN_FROM_PACKAGE="0",
+          # but ignore_changes means Terraform won't push that onto the already-existing resource
+          # - so set it directly here, once, to force traditional Kudu zip-extraction deployment.
+          # A redeploy (function-release.yml) is still needed afterward for it to take effect.
+          az functionapp config appsettings set --name foodfast-orders-fn-ogogundare --resource-group "$(resourceGroupName)" --settings WEBSITE_RUN_FROM_PACKAGE=0 -o none
 
     - publish: infra/terraform/tfplan
       artifact: foodfast-tfplan

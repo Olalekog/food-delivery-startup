@@ -33,6 +33,15 @@ resource "azurerm_linux_function_app" "orders" {
     FUNCTIONS_EXTENSION_VERSION    = "~4"
     AzureWebJobsFeatureFlags       = "EnableWorkerIndexing"
     SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
+    # Forces traditional Kudu zip-extraction deployment instead of Run-From-Package. Confirmed
+    # across many real applies+deploys that under WEBSITE_RUN_FROM_PACKAGE=1 (the default this
+    # ended up with), /home/site/wwwroot only ever contained host.json - package.json, src/, and
+    # node_modules never landed, so the host indexed zero functions no matter what the deployed
+    # zip contained. This value only takes effect on the resource's initial creation - see
+    # ignore_changes below - so it's also applied once directly via `az functionapp config
+    # appsettings set` to fix the already-existing app; this declaration documents the intent and
+    # covers a from-scratch recreate.
+    WEBSITE_RUN_FROM_PACKAGE = "0"
   }
 
   lifecycle {
